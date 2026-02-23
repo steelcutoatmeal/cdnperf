@@ -110,18 +110,25 @@ Cloudflare — PoP: DEN (Denver, US) — 623 km away
 Hop-by-hop traceroute with reverse DNS and ASN ownership:
 
 ```
-Network Path (16 hops, 3 ASNs traversed)
-┌─────┬─────────────────┬──────────────────────────────┬────────┬──────────────────────┐
-│ Hop │ IP              │ Hostname                     │    RTT │ ASN                  │
-├─────┼─────────────────┼──────────────────────────────┼────────┼──────────────────────┤
-│  1  │ 10.5.5.1        │ —                            │  2.2ms │ (private)            │
-│  2  │ 135.129.144.1   │ —                            │  2.1ms │ AS13614              │
-│  ...│                 │                              │        │                      │
-│  9  │ 154.54.5.146    │ be8969.ccr32.slc01.atlas.co… │  4.3ms │ AS174 COGENT-174, US │
-│  ...│                 │                              │        │                      │
-│ 15  │ 172.68.32.10    │ —                            │ 14.5ms │ AS13335 CLOUDFLARENET │
-│ 16  │ 162.159.140.220 │ —                            │ 13.9ms │ AS13335 CLOUDFLARENET │
-└─────┴─────────────────┴──────────────────────────────┴────────┴──────────────────────┘
+Network Path (16 hops, 4 ASNs traversed)
+┌─────┬─────────────────┬──────────────────────────────────────┬────────┬──────────────────────────────┐
+│ Hop │ IP              │ Hostname                             │    RTT │ ASN                          │
+├─────┼─────────────────┼──────────────────────────────────────┼────────┼──────────────────────────────┤
+│  1  │ X.X.X.X         │ —                                    │  1.8ms │ (private)                    │
+│  2  │ X.X.X.X         │ —                                    │  2.1ms │ AS13614 ALL-WEST, US         │
+│  3  │ 135.129.252.170 │ —                                    │  2.4ms │ AS13614 ALL-WEST, US         │
+│  4  │ 154.54.85.37    │ be4484.ccr32.slc01.atlas.cogentco.c… │  5.1ms │ AS174 COGENT-174, US         │
+│  5  │ 154.54.42.97    │ be3036.ccr22.den01.atlas.cogentco.c… │ 11.2ms │ AS174 COGENT-174, US         │
+│  6  │ 154.54.5.146    │ be8969.ccr32.slc01.atlas.cogentco.c… │  4.3ms │ AS174 COGENT-174, US         │
+│  7  │ 154.54.31.34    │ be3382.ccr21.den01.atlas.cogentco.c… │ 12.8ms │ AS174 COGENT-174, US         │
+│  8  │ 154.54.7.129    │ be3109.ccr21.mci01.atlas.cogentco.c… │ 13.1ms │ AS174 COGENT-174, US         │
+│  9  │ *               │                                      │      * │                              │
+│ 10  │ *               │                                      │      * │                              │
+│ 11  │ 198.51.100.2    │ ix-ae-12-0.tcore2.DEN.net.telstra.c… │ 13.5ms │ AS4637 TELSTRA-AS, AU        │
+│ 12  │ *               │                                      │      * │                              │
+│ 13  │ 172.68.32.10    │ —                                    │ 14.5ms │ AS13335 CLOUDFLARENET, US     │
+│ 14  │ 162.159.140.220 │ —                                    │ 13.9ms │ AS13335 CLOUDFLARENET, US     │
+└─────┴─────────────────┴──────────────────────────────────────┴────────┴──────────────────────────────┘
   target reached ✓
 ```
 
