@@ -49,12 +49,9 @@ def _reverse_ip(ip: str) -> str:
     return ".".join(reversed(ip.split(".")))
 
 
-def _is_private(ip: str) -> bool:
-    """Return True if *ip* is a private / reserved address."""
-    try:
-        return ipaddress.ip_address(ip).is_private
-    except ValueError:
-        return False
+def clear_asn_cache() -> None:
+    """Clear the module-level ASN cache to prevent unbounded growth."""
+    _asn_cache.clear()
 
 
 async def _cymru_origin_lookup(
@@ -172,7 +169,7 @@ async def _enrich_hops(hops: list[HopInfo]) -> None:
     rdns_tasks: list[tuple[int, asyncio.Task]] = []
 
     for idx, hop in enumerate(hops):
-        if hop.ip is None or _is_private(hop.ip):
+        if hop.ip is None or hop.is_private:
             continue
         asn_tasks.append((idx, asyncio.ensure_future(_lookup_asn(hop.ip, resolver))))
         rdns_tasks.append((idx, asyncio.ensure_future(_reverse_dns(hop.ip, resolver))))
@@ -237,15 +234,11 @@ async def _traceroute_icmplib(
             # Timed-out hop
             hops.append(HopInfo(hop_number=hop.distance))
         else:
-            # Build per-probe RTT list.  icmplib exposes aggregate stats;
-            # we store [avg_rtt] * packets_received as the closest
-            # approximation without patching icmplib internals.
-            rtt_list = [hop.avg_rtt] * hop.packets_received
             hops.append(
                 HopInfo(
                     hop_number=hop.distance,
                     ip=hop.address,
-                    rtt_ms=rtt_list,
+                    rtt_ms=hop.rtts,
                 )
             )
 
@@ -425,6 +418,8 @@ async def trace_all(
     dict[str, NetworkPath]
         Results keyed by provider slug.
     """
+    clear_asn_cache()
+
     tasks = {
         slug: asyncio.ensure_future(trace_path(ip, slug, max_hops))
         for slug, ip in targets.items()

@@ -4,7 +4,9 @@ Measures five connection phases independently:
   DNS -> TCP -> TLS -> TTFB -> Transfer
 
 Each phase is timed with time.perf_counter() for monotonic,
-high-resolution measurements.
+high-resolution measurements.  After TLS, the existing socket is
+reused for the HTTP request (h2 or HTTP/1.1) so that TTFB reflects
+only application-level latency, not a redundant TCP+TLS handshake.
 
 Public API:
     measure_provider  -- run all samples for a single CDN provider
@@ -17,11 +19,15 @@ import asyncio
 import logging
 import ssl
 import time
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
 import dns.asyncresolver
 import dns.rdatatype
+import h2.config
+import h2.connection
+import h2.events
 import httpx
 
 from cdnperf.config import USER_AGENT
@@ -42,6 +48,21 @@ logger = logging.getLogger(__name__)
 # Signature: (provider_slug, sample_index, total_samples, sample_result_or_none)
 ProgressCallback = Callable[[str, int, int, Optional[SampleResult]], None]
 
+
+# ---------------------------------------------------------------------------
+# Engine-internal HTTP result (replaces httpx.Response on the timing path)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class HttpResult:
+    """Lightweight container for the HTTP response collected on the raw socket."""
+
+    status_code: int = 0
+    headers: dict[str, str] = field(default_factory=dict)
+    body: bytes = b""
+    http_version: str = ""
+
+
 # ---------------------------------------------------------------------------
 # DNS resolution
 # ---------------------------------------------------------------------------
@@ -55,6 +76,11 @@ async def _resolve_dns(
     Respects ``config.dns_server``, ``config.ipv4_only`` and
     ``config.ipv6_only``.  Falls back from AAAA to A (or vice-versa) when
     the preferred record type yields no results.
+
+    Note: On macOS, the system DNS cache (mDNSResponder) may cache
+    responses, making DNS timing for samples 2+ artificially fast.
+    Use ``--dns-server`` to bypass the OS cache for more accurate
+    per-sample DNS measurements.
 
     Raises
     ------
@@ -121,7 +147,7 @@ async def _measure_tcp(
 def _build_ssl_context(hostname: str) -> ssl.SSLContext:
     """Build a standard SSL context that validates the server certificate."""
     ctx = ssl.create_default_context()
-    # server_hostname is set when the context is used, not here.
+    ctx.set_alpn_protocols(["h2", "http/1.1"])
     return ctx
 
 
@@ -181,6 +207,21 @@ def _extract_tls_version_from_transport(transport: object) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
+# ALPN detection
+# ---------------------------------------------------------------------------
+
+def _detect_alpn(writer: asyncio.StreamWriter) -> Optional[str]:
+    """Extract the negotiated ALPN protocol from the TLS socket.
+
+    Returns ``"h2"``, ``"http/1.1"``, or ``None``.
+    """
+    ssl_obj = writer.transport.get_extra_info("ssl_object")
+    if ssl_obj is not None:
+        return ssl_obj.selected_alpn_protocol()
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Combined TCP + TLS (fallback when start_tls is unavailable / fails)
 # ---------------------------------------------------------------------------
 
@@ -190,16 +231,17 @@ async def _measure_tcp_tls_combined(
     hostname: str,
     tcp_ms: float,
     timeout: float,
-) -> tuple[float, Optional[str]]:
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, float, Optional[str]]:
     """Open a single SSL connection to measure TCP+TLS together.
 
     TLS time is estimated by subtracting a previously measured *tcp_ms*.
-    Returns (tls_ms, tls_version).
+    Returns (reader, writer, tls_ms, tls_version).  The caller owns the
+    connection and is responsible for closing it.
     """
     ctx = _build_ssl_context(hostname)
 
     t0 = time.perf_counter()
-    _reader, writer = await asyncio.wait_for(
+    reader, writer = await asyncio.wait_for(
         asyncio.open_connection(ip, port, ssl=ctx, server_hostname=hostname),
         timeout=timeout,
     )
@@ -208,14 +250,294 @@ async def _measure_tcp_tls_combined(
 
     tls_version = _extract_tls_version(writer)
 
-    writer.close()
-    await writer.wait_closed()
-
-    return round(tls_ms, 3), tls_version
+    return reader, writer, round(tls_ms, 3), tls_version
 
 
 # ---------------------------------------------------------------------------
-# TTFB + Transfer via httpx
+# HTTP/2 measurement on existing TLS socket
+# ---------------------------------------------------------------------------
+
+async def _measure_http_h2(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    hostname: str,
+    path: str,
+    extra_headers: dict[str, str],
+    timeout: float,
+) -> tuple[float, float, HttpResult]:
+    """Send an HTTP/2 request on an existing TLS connection via the h2 library.
+
+    Returns (ttfb_ms, transfer_ms, HttpResult).
+    """
+    config = h2.config.H2Configuration(client_side=True)
+    conn = h2.connection.H2Connection(config=config)
+
+    # Send connection preface
+    conn.initiate_connection()
+    writer.write(conn.data_to_send())
+    await writer.drain()
+
+    # Wait for server SETTINGS (not timed as TTFB)
+    preface_data = await asyncio.wait_for(reader.read(65535), timeout=timeout)
+    events = conn.receive_data(preface_data)
+    writer.write(conn.data_to_send())
+    await writer.drain()
+
+    # Build headers for the GET request
+    headers = [
+        (":method", "GET"),
+        (":path", path),
+        (":scheme", "https"),
+        (":authority", hostname),
+        ("user-agent", USER_AGENT),
+    ]
+    for k, v in extra_headers.items():
+        headers.append((k.lower(), v))
+
+    # Send request — start TTFB timer
+    stream_id = conn.get_next_available_stream_id()
+    conn.send_headers(stream_id, headers, end_stream=True)
+    t_send = time.perf_counter()
+    writer.write(conn.data_to_send())
+    await writer.drain()
+
+    # Read response
+    response_headers: dict[str, str] = {}
+    status_code = 0
+    body_chunks: list[bytes] = []
+    t_first_byte: float | None = None
+    stream_ended = False
+
+    while not stream_ended:
+        data = await asyncio.wait_for(reader.read(65535), timeout=timeout)
+        if not data:
+            break
+
+        events = conn.receive_data(data)
+        for event in events:
+            if isinstance(event, h2.events.ResponseReceived):
+                if t_first_byte is None:
+                    t_first_byte = time.perf_counter()
+                for header_name, header_value in event.headers:
+                    name = header_name.decode() if isinstance(header_name, bytes) else header_name
+                    value = header_value.decode() if isinstance(header_value, bytes) else header_value
+                    if name == ":status":
+                        status_code = int(value)
+                    else:
+                        response_headers[name] = value
+
+            elif isinstance(event, h2.events.DataReceived):
+                if t_first_byte is None:
+                    t_first_byte = time.perf_counter()
+                body_chunks.append(event.data)
+                conn.acknowledge_received_data(
+                    event.flow_controlled_length, event.stream_id,
+                )
+                writer.write(conn.data_to_send())
+                await writer.drain()
+
+            elif isinstance(event, h2.events.StreamEnded):
+                stream_ended = True
+
+            elif isinstance(event, h2.events.StreamReset):
+                raise ConnectionError(
+                    f"HTTP/2 stream reset: error code {event.error_code}"
+                )
+
+    if t_first_byte is None:
+        t_first_byte = time.perf_counter()
+
+    t_done = time.perf_counter()
+    ttfb_ms = (t_first_byte - t_send) * 1000.0
+    transfer_ms = (t_done - t_first_byte) * 1000.0
+
+    result = HttpResult(
+        status_code=status_code,
+        headers=response_headers,
+        body=b"".join(body_chunks),
+        http_version="HTTP/2",
+    )
+    return round(ttfb_ms, 3), round(transfer_ms, 3), result
+
+
+# ---------------------------------------------------------------------------
+# HTTP/1.1 measurement on existing TLS socket
+# ---------------------------------------------------------------------------
+
+async def _measure_http_h1(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    hostname: str,
+    path: str,
+    extra_headers: dict[str, str],
+    timeout: float,
+) -> tuple[float, float, HttpResult]:
+    """Send a raw HTTP/1.1 request on an existing TLS connection.
+
+    Returns (ttfb_ms, transfer_ms, HttpResult).
+    """
+    # Build request
+    request_lines = [
+        f"GET {path} HTTP/1.1",
+        f"Host: {hostname}",
+        f"User-Agent: {USER_AGENT}",
+        "Accept: */*",
+        "Connection: close",
+    ]
+    for k, v in extra_headers.items():
+        request_lines.append(f"{k}: {v}")
+    request_lines.append("")
+    request_lines.append("")
+    request_bytes = "\r\n".join(request_lines).encode()
+
+    # Send request — start TTFB timer
+    t_send = time.perf_counter()
+    writer.write(request_bytes)
+    await writer.drain()
+
+    # Read until we get the full header block (\r\n\r\n)
+    header_buf = b""
+    while b"\r\n\r\n" not in header_buf:
+        chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+        if not chunk:
+            break
+        header_buf += chunk
+
+    t_first_byte = time.perf_counter()
+    ttfb_ms = (t_first_byte - t_send) * 1000.0
+
+    # Split header from any body data received so far
+    header_end = header_buf.index(b"\r\n\r\n")
+    header_block = header_buf[:header_end].decode(errors="replace")
+    body_so_far = header_buf[header_end + 4:]
+
+    # Parse status line
+    lines = header_block.split("\r\n")
+    status_line = lines[0]
+    parts = status_line.split(" ", 2)
+    http_version_str = parts[0] if len(parts) >= 1 else "HTTP/1.1"
+    status_code = int(parts[1]) if len(parts) >= 2 else 0
+
+    # Parse headers
+    response_headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if ":" in line:
+            name, _, value = line.partition(":")
+            response_headers[name.strip().lower()] = value.strip()
+
+    # Read body
+    content_length = response_headers.get("content-length")
+    transfer_encoding = response_headers.get("transfer-encoding", "").lower()
+
+    if transfer_encoding == "chunked":
+        body = await _read_chunked_body(reader, body_so_far, timeout)
+    elif content_length is not None:
+        remaining = int(content_length) - len(body_so_far)
+        body_parts = [body_so_far]
+        while remaining > 0:
+            chunk = await asyncio.wait_for(reader.read(min(remaining, 65535)), timeout=timeout)
+            if not chunk:
+                break
+            body_parts.append(chunk)
+            remaining -= len(chunk)
+        body = b"".join(body_parts)
+    else:
+        # Read until EOF (Connection: close)
+        body_parts = [body_so_far]
+        while True:
+            try:
+                chunk = await asyncio.wait_for(reader.read(65535), timeout=timeout)
+                if not chunk:
+                    break
+                body_parts.append(chunk)
+            except (asyncio.TimeoutError, ConnectionError):
+                break
+        body = b"".join(body_parts)
+
+    t_done = time.perf_counter()
+    transfer_ms = (t_done - t_first_byte) * 1000.0
+
+    result = HttpResult(
+        status_code=status_code,
+        headers=response_headers,
+        body=body,
+        http_version=http_version_str,
+    )
+    return round(ttfb_ms, 3), round(transfer_ms, 3), result
+
+
+async def _read_chunked_body(
+    reader: asyncio.StreamReader,
+    initial_data: bytes,
+    timeout: float,
+) -> bytes:
+    """Read a chunked transfer-encoded body."""
+    buf = initial_data
+    body_parts: list[bytes] = []
+
+    while True:
+        # Ensure we have a chunk size line
+        while b"\r\n" not in buf:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+            if not chunk:
+                return b"".join(body_parts)
+            buf += chunk
+
+        line_end = buf.index(b"\r\n")
+        size_str = buf[:line_end].decode(errors="replace").strip()
+        buf = buf[line_end + 2:]
+
+        # Parse chunk size (ignore extensions after semicolon)
+        if ";" in size_str:
+            size_str = size_str.split(";")[0]
+        chunk_size = int(size_str, 16)
+
+        if chunk_size == 0:
+            break
+
+        # Read chunk_size bytes + trailing \r\n
+        needed = chunk_size + 2  # data + \r\n
+        while len(buf) < needed:
+            data = await asyncio.wait_for(reader.read(min(needed - len(buf), 65535)), timeout=timeout)
+            if not data:
+                break
+            buf += data
+
+        body_parts.append(buf[:chunk_size])
+        buf = buf[chunk_size + 2:]  # skip trailing \r\n
+
+    return b"".join(body_parts)
+
+
+# ---------------------------------------------------------------------------
+# HTTP dispatcher (replaces old _measure_http)
+# ---------------------------------------------------------------------------
+
+async def _measure_http(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    hostname: str,
+    path: str,
+    extra_headers: dict[str, str],
+    timeout: float,
+    alpn_protocol: Optional[str],
+) -> tuple[float, float, HttpResult]:
+    """Dispatch to h2 or h1 based on ALPN negotiation.
+
+    Returns (ttfb_ms, transfer_ms, HttpResult).
+    """
+    if alpn_protocol == "h2":
+        return await _measure_http_h2(
+            reader, writer, hostname, path, extra_headers, timeout,
+        )
+    else:
+        return await _measure_http_h1(
+            reader, writer, hostname, path, extra_headers, timeout,
+        )
+
+
+# ---------------------------------------------------------------------------
+# PoP detection transport (still uses httpx — not on the timing path)
 # ---------------------------------------------------------------------------
 
 class _PinnedTransport(httpx.AsyncHTTPTransport):
@@ -243,63 +565,6 @@ class _PinnedTransport(httpx.AsyncHTTPTransport):
         return await super().handle_async_request(request)
 
 
-async def _measure_http(
-    ip: str,
-    hostname: str,
-    path: str,
-    port: int,
-    extra_headers: dict[str, str],
-    timeout: float,
-) -> tuple[float, float, httpx.Response, bytes]:
-    """Send an HTTP request to the resolved *ip* and measure TTFB + Transfer.
-
-    The URL uses the original hostname for correct TLS SNI / certificate
-    validation.  A ``_PinnedTransport`` rewrites the connection to target
-    the pre-resolved IP, avoiding a redundant DNS lookup.
-
-    Returns (ttfb_ms, transfer_ms, response, body).
-    """
-    scheme = "https" if port == 443 else "http"
-    url = f"{scheme}://{hostname}{path}" if path else f"{scheme}://{hostname}/"
-
-    headers = {
-        "User-Agent": USER_AGENT,
-        **extra_headers,
-    }
-
-    transport = _PinnedTransport(target_ip=ip, http2=True, verify=True)
-
-    # Per-sample fresh client — prevents connection reuse.
-    async with httpx.AsyncClient(
-        transport=transport,
-        timeout=httpx.Timeout(timeout),
-    ) as client:
-        t_send = time.perf_counter()
-
-        async with client.stream("GET", url, headers=headers) as response:
-            # TTFB: time until we can read the first chunk.
-            chunks: list[bytes] = []
-            aiter = response.aiter_bytes().__aiter__()
-            try:
-                first_chunk = await aiter.__anext__()
-                t_first_byte = time.perf_counter()
-                ttfb_ms = (t_first_byte - t_send) * 1000.0
-                chunks.append(first_chunk)
-            except StopAsyncIteration:
-                t_first_byte = time.perf_counter()
-                ttfb_ms = (t_first_byte - t_send) * 1000.0
-
-            # Transfer: read remaining body.
-            async for chunk in aiter:
-                chunks.append(chunk)
-            t_done = time.perf_counter()
-            transfer_ms = (t_done - t_first_byte) * 1000.0
-
-    body = b"".join(chunks)
-
-    return round(ttfb_ms, 3), round(transfer_ms, 3), response, body
-
-
 # ---------------------------------------------------------------------------
 # Single sample
 # ---------------------------------------------------------------------------
@@ -313,6 +578,10 @@ async def _run_single_sample(
 
     Phases are measured independently in sequence:
         DNS -> TCP -> TLS -> TTFB -> Transfer
+
+    The TLS socket is kept open and reused for the HTTP request so that
+    TTFB measures only the application-level request/response latency,
+    not a redundant TCP+TLS handshake.
 
     If an early phase fails the remaining phases are skipped and the
     sample is marked with an error string.
@@ -332,102 +601,112 @@ async def _run_single_sample(
     cache_status: Optional[str] = None
     error: Optional[str] = None
 
-    # ---- Phase 1: DNS ----
-    try:
-        resolved_ip, dns_ms = await _resolve_dns(hostname, config)
-        timing.dns_ms = dns_ms
-    except Exception as exc:
-        error = f"DNS resolution failed: {exc}"
-        logger.debug("DNS failed for %s: %s", hostname, exc)
-        return SampleResult(
-            sample_index=sample_index,
-            timing=timing,
-            error=error,
-        )
+    # Track the active reader/writer for the socket reused across phases
+    active_reader: asyncio.StreamReader | None = None
+    active_writer: asyncio.StreamWriter | None = None
+    alpn_protocol: Optional[str] = None
 
-    # ---- Phase 2: TCP ----
-    tcp_reader: asyncio.StreamReader | None = None
-    tcp_writer: asyncio.StreamWriter | None = None
     try:
-        tcp_reader, tcp_writer, tcp_ms = await _measure_tcp(
-            resolved_ip, port, config.timeout,
-        )
-        timing.tcp_ms = tcp_ms
-    except Exception as exc:
-        error = f"TCP connect failed: {exc}"
-        logger.debug("TCP failed for %s:%d: %s", resolved_ip, port, exc)
-        return SampleResult(
-            sample_index=sample_index,
-            timing=timing,
-            resolved_ip=resolved_ip,
-            error=error,
-        )
-
-    # ---- Phase 3: TLS ----
-    if parsed.scheme == "https":
+        # ---- Phase 1: DNS ----
         try:
-            tls_ms, tls_version = await _measure_tls(
-                tcp_reader, tcp_writer, hostname, config.timeout,
+            resolved_ip, dns_ms = await _resolve_dns(hostname, config)
+            timing.dns_ms = dns_ms
+        except Exception as exc:
+            error = f"DNS resolution failed: {exc}"
+            logger.debug("DNS failed for %s: %s", hostname, exc)
+            return SampleResult(
+                sample_index=sample_index,
+                timing=timing,
+                error=error,
             )
-            timing.tls_ms = tls_ms
-        except Exception:
-            # Fallback: combined TCP+TLS measurement.
-            logger.debug(
-                "start_tls failed for %s, falling back to combined measurement",
-                hostname,
+
+        # ---- Phase 2: TCP ----
+        try:
+            active_reader, active_writer, tcp_ms = await _measure_tcp(
+                resolved_ip, port, config.timeout,
             )
+            timing.tcp_ms = tcp_ms
+        except Exception as exc:
+            error = f"TCP connect failed: {exc}"
+            logger.debug("TCP failed for %s:%d: %s", resolved_ip, port, exc)
+            return SampleResult(
+                sample_index=sample_index,
+                timing=timing,
+                resolved_ip=resolved_ip,
+                error=error,
+            )
+
+        # ---- Phase 3: TLS ----
+        if parsed.scheme == "https":
             try:
-                tls_ms, tls_version = await _measure_tcp_tls_combined(
-                    resolved_ip, port, hostname, timing.tcp_ms, config.timeout,
+                tls_ms, tls_version = await _measure_tls(
+                    active_reader, active_writer, hostname, config.timeout,
                 )
                 timing.tls_ms = tls_ms
-            except Exception as exc:
-                error = f"TLS handshake failed: {exc}"
-                logger.debug("TLS failed for %s: %s", hostname, exc)
-                _safe_close_writer(tcp_writer)
-                return SampleResult(
-                    sample_index=sample_index,
-                    timing=timing,
-                    resolved_ip=resolved_ip,
-                    error=error,
+                alpn_protocol = _detect_alpn(active_writer)
+            except Exception:
+                # Fallback: combined TCP+TLS measurement (new connection).
+                logger.debug(
+                    "start_tls failed for %s, falling back to combined measurement",
+                    hostname,
                 )
+                # Close the broken original socket
+                _safe_close_writer(active_writer)
+                active_reader = None
+                active_writer = None
 
-    # We no longer need the raw socket -- httpx will open its own connection.
-    _safe_close_writer(tcp_writer)
+                try:
+                    active_reader, active_writer, tls_ms, tls_version = (
+                        await _measure_tcp_tls_combined(
+                            resolved_ip, port, hostname, timing.tcp_ms, config.timeout,
+                        )
+                    )
+                    timing.tls_ms = tls_ms
+                    alpn_protocol = _detect_alpn(active_writer)
+                except Exception as exc:
+                    error = f"TLS handshake failed: {exc}"
+                    logger.debug("TLS failed for %s: %s", hostname, exc)
+                    return SampleResult(
+                        sample_index=sample_index,
+                        timing=timing,
+                        resolved_ip=resolved_ip,
+                        error=error,
+                    )
 
-    # ---- Phases 4 & 5: TTFB + Transfer ----
-    try:
-        ttfb_ms, transfer_ms, response, _body = await _measure_http(
-            resolved_ip,
-            hostname,
-            path,
-            port,
-            provider.extra_headers,
-            config.timeout,
-        )
-        timing.ttfb_ms = ttfb_ms
-        timing.transfer_ms = transfer_ms
+        # ---- Phases 4 & 5: TTFB + Transfer ----
+        try:
+            ttfb_ms, transfer_ms, http_result = await _measure_http(
+                active_reader,
+                active_writer,
+                hostname,
+                path,
+                provider.extra_headers,
+                config.timeout,
+                alpn_protocol,
+            )
+            timing.ttfb_ms = ttfb_ms
+            timing.transfer_ms = transfer_ms
 
-        status_code = response.status_code
-        http_version = response.http_version
+            status_code = http_result.status_code
+            http_version = http_result.http_version
 
-        # Extract cache status from common CDN headers.
-        for hdr in ("x-cache", "cf-cache-status", "x-cache-status", "x-cdn-cache"):
-            val = response.headers.get(hdr)
-            if val:
-                cache_status = val
-                break
+            # Extract cache status from common CDN headers.
+            for hdr in ("x-cache", "cf-cache-status", "x-cache-status", "x-cdn-cache"):
+                val = http_result.headers.get(hdr) or http_result.headers.get(hdr.lower())
+                if val:
+                    cache_status = val
+                    break
 
-    except httpx.TimeoutException as exc:
-        error = f"HTTP timeout: {exc}"
-        logger.debug("HTTP timeout for %s: %s", hostname, exc)
-    except httpx.HTTPStatusError as exc:
-        error = f"HTTP error: {exc.response.status_code}"
-        status_code = exc.response.status_code
-        logger.debug("HTTP status error for %s: %s", hostname, exc)
-    except Exception as exc:
-        error = f"HTTP request failed: {exc}"
-        logger.debug("HTTP failed for %s: %s", hostname, exc)
+        except asyncio.TimeoutError as exc:
+            error = f"HTTP timeout: {exc}"
+            logger.debug("HTTP timeout for %s: %s", hostname, exc)
+        except Exception as exc:
+            error = f"HTTP request failed: {exc}"
+            logger.debug("HTTP failed for %s: %s", hostname, exc)
+
+    finally:
+        # Always close the socket when we're done
+        _safe_close_writer(active_writer)
 
     return SampleResult(
         sample_index=sample_index,
@@ -507,9 +786,6 @@ async def measure_provider(
         provider_slug=provider.slug,
         probe_url=provider.probe_url,
     )
-
-    # Track the first successful response for PoP detection and metadata.
-    first_response: httpx.Response | None = None
 
     for i in range(total_samples):
         is_warmup = i < config.warmup
@@ -607,6 +883,13 @@ async def _detect_pop_and_metadata(
             response = await client.get(url, headers=headers)
 
     pop = provider.detect_pop(response)
+
+    # If PoP detection was weak, try IP-based detection
+    if pop.confidence in ("best_effort", "unknown") and result.resolved_ip:
+        ip_pop = await provider.detect_pop_by_ip(result.resolved_ip)
+        if ip_pop is not None and ip_pop.code:
+            pop = ip_pop
+
     metadata = provider.extract_metadata(response)
 
     # Propagate cache status into result if not already set.

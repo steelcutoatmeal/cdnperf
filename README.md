@@ -1,16 +1,19 @@
 # cdnperf
 
-A Python CLI tool that measures latency to CDN Points of Presence with granular per-phase timing breakdown (DNS, TCP, TLS, TTFB) and traces the network path to each CDN showing every hop with ASN information.
+A Python CLI tool that measures latency to CDN Points of Presence with granular per-phase timing breakdown (DNS, TCP, TLS, TTFB, Transfer) and traces the network path to each CDN showing every hop with ASN information.
 
 ## Features
 
-- **Per-phase latency breakdown** — DNS resolution, TCP connect, TLS handshake, and time-to-first-byte measured independently
-- **PoP detection** — Automatically identifies which CDN edge location you're routed to (e.g., DFW, DEN, LAX)
-- **Network path tracing** — Traceroute to each CDN with ASN ownership via Team Cymru DNS lookups
-- **6 CDN providers** — Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Google
-- **Statistical aggregation** — Min, avg, median, P95, max, stdev, jitter across samples
+- **Per-phase latency breakdown** — DNS resolution, TCP connect, TLS handshake, TTFB, and transfer measured independently
+- **Accurate TTFB** — HTTP requests are sent directly on the existing TLS socket (h2 or HTTP/1.1), so TTFB reflects pure application latency with no hidden TCP+TLS double-counting
+- **PoP detection** — Automatically identifies which CDN edge location you're routed to (e.g., DFW, DEN, LAX), including rDNS-based detection for Google
+- **Custom URL probing** — Measure any endpoint with `--url`, not just built-in CDN providers
+- **Repeat/watch mode** — Run measurements repeatedly with `--repeat` and `--interval` for monitoring
+- **7 CDN providers** — Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Google, plus any custom URL
+- **Statistical aggregation** — Min, avg, median, P95, max, stdev, jitter across samples (with Bessel's correction for sample variance)
 - **User geolocation** — Shows your IP, location, ISP, and distance to each detected PoP
-- **Multiple output formats** — Rich terminal tables, JSON, CSV
+- **Multiple output formats** — Rich terminal tables, JSON (with timestamp), CSV (with timestamp and transfer stats)
+- **Network path tracing** — Traceroute to each CDN with ASN ownership via Team Cymru DNS lookups
 - **Concurrent measurement** — All providers measured in parallel; samples run sequentially per provider with fresh connections
 
 ## Installation
@@ -34,16 +37,22 @@ cdnperf -p cloudflare -n 3 -v
 # Multiple providers, comparison table only
 cdnperf -p cloudflare,cloudfront,google --compare
 
+# Measure a custom URL
+cdnperf --url https://example.com -n 3
+
+# Repeat measurements every 30 seconds, 5 rounds
+cdnperf -p cloudflare --repeat 5 --interval 30
+
 # Skip traceroute for faster results
 cdnperf --no-trace
 
-# Export to JSON
+# Export to JSON (includes timestamp)
 cdnperf --json -o results.json
 
-# Export to CSV
+# Export to CSV (includes timestamp and transfer stats)
 cdnperf --csv -o results.csv
 
-# Use a custom DNS server
+# Use a custom DNS server (bypasses OS DNS cache)
 cdnperf --dns-server 8.8.8.8
 
 # Quiet mode (no progress bar)
@@ -81,6 +90,9 @@ Options:
   -v, --verbose          Show per-sample details
   --no-geo               Skip geolocation lookup
   --compare              Show only summary comparison table
+  --url TEXT             Custom probe URL (creates a generic provider)
+  --repeat INTEGER       Number of measurement rounds [default: 1]
+  --interval INTEGER     Seconds between rounds (used with --repeat) [default: 60]
   --version              Show the version and exit.
   --help                 Show this message and exit.
 ```
@@ -89,21 +101,25 @@ Options:
 
 ### Per-Provider Detail
 
-Each provider shows a phase breakdown stats table and optional network path:
+Each provider shows a phase breakdown stats table with all 5 phases plus total:
 
 ```
 Cloudflare — PoP: DEN (Denver, US) — 623 km away
 ┌──────────┬────────┬────────┬────────┬────────┬────────┬────────┐
 │ Phase    │    Min │    Avg │ Median │    P95 │    Max │ Jitter │
 ├──────────┼────────┼────────┼────────┼────────┼────────┼────────┤
-│ DNS      │ 15.7ms │ 16.9ms │ 15.8ms │ 18.9ms │ 19.2ms │  1.8ms │
-│ TCP      │ 13.8ms │ 13.9ms │ 13.8ms │ 14.1ms │ 14.2ms │  0.2ms │
-│ TLS      │ 18.6ms │ 19.0ms │ 19.2ms │ 19.2ms │ 19.2ms │  0.3ms │
-│ TTFB     │ 49.4ms │ 53.5ms │ 54.8ms │ 56.1ms │ 56.3ms │  6.1ms │
-│ Total    │100.3ms │101.4ms │101.8ms │101.9ms │102.0ms │  1.5ms │
+│ DNS      │ 15.2ms │ 15.6ms │ 15.7ms │ 16.0ms │ 16.1ms │  0.7ms │
+│ TCP      │ 13.0ms │ 14.0ms │ 14.1ms │ 14.9ms │ 15.0ms │  1.0ms │
+│ TLS      │ 18.0ms │ 19.3ms │ 18.9ms │ 20.9ms │ 21.1ms │  1.9ms │
+│ TTFB     │ 15.8ms │ 16.4ms │ 16.3ms │ 17.1ms │ 17.2ms │  1.1ms │
+│ Transfer │  0.0ms │  0.0ms │  0.0ms │  0.1ms │  0.1ms │  0.1ms │
+├──────────┼────────┼────────┼────────┼────────┼────────┼────────┤
+│ Total    │ 63.4ms │ 65.5ms │ 64.6ms │ 68.1ms │ 68.5ms │  2.5ms │
 └──────────┴────────┴────────┴────────┴────────┴────────┴────────┘
   Edge IP: 162.159.140.220 | TLS: TLSv1.3 | HTTP/1.1
 ```
+
+Note: TTFB reflects only the time from sending the HTTP request to receiving the first response byte on the already-established TLS connection — it does not include a redundant TCP+TLS handshake.
 
 ### Network Path
 
@@ -141,10 +157,10 @@ CDN Comparison (sorted by median total latency)
 ┌──────────────┬──────┬───────┬───────┬───────┬───────┬───────┬────────┬──────┬──────────────────────┐
 │ Provider     │ PoP  │   DNS │   TCP │   TLS │  TTFB │ Total │ Jitter │ Hops │ Latency Bar          │
 ├──────────────┼──────┼───────┼───────┼───────┼───────┼───────┼────────┼──────┼──────────────────────┤
-│ Cloudflare   │ DEN  │ 17ms  │ 14ms  │ 17ms  │ 55ms  │ 102ms │  2ms   │   16 │ ████████████░░░░░░░░ │
-│ Google       │ —    │ 16ms  │ 15ms  │ 27ms  │ 61ms  │ 120ms │  3ms   │   15 │ ██████████████░░░░░░ │
-│ CloudFront   │ DEN  │ 35ms  │ 16ms  │ 19ms  │ 59ms  │ 131ms │ 24ms   │    — │ ████████████████░░░░ │
-│ Akamai       │ —    │ 19ms  │ 29ms  │ 31ms  │125ms  │ 213ms │ 26ms   │   18 │ ████████████████████ │
+│ Cloudflare   │ DEN  │ 17ms  │ 14ms  │ 17ms  │ 16ms  │  65ms │  2ms   │   16 │ ████████████░░░░░░░░ │
+│ Google       │ DEN  │ 16ms  │ 15ms  │ 27ms  │ 18ms  │  76ms │  3ms   │   15 │ ██████████████░░░░░░ │
+│ CloudFront   │ DEN  │ 35ms  │ 16ms  │ 19ms  │ 22ms  │  93ms │ 24ms   │    — │ ████████████████░░░░ │
+│ Akamai       │ —    │ 19ms  │ 29ms  │ 31ms  │ 30ms  │ 110ms │ 26ms   │   18 │ ████████████████████ │
 └──────────────┴──────┴───────┴───────┴───────┴───────┴───────┴────────┴──────┴──────────────────────┘
 ```
 
@@ -152,17 +168,21 @@ CDN Comparison (sorted by median total latency)
 
 ### Measurement Phases
 
-Each sample measures 5 phases independently using low-level timing (`time.perf_counter()`):
+Each sample measures 5 phases independently using monotonic high-resolution timing (`time.perf_counter()`):
 
 | Phase | Technique |
 |---|---|
 | **DNS** | `dnspython` async resolver, supports custom DNS server and IPv4/IPv6 filtering |
 | **TCP** | `asyncio.open_connection()` to the resolved IP |
 | **TLS** | `start_tls()` upgrade on the TCP connection (fallback to combined TCP+TLS) |
-| **TTFB** | `httpx` streaming request — time from send to first response bytes |
+| **TTFB** | HTTP request sent directly on the existing TLS socket via `h2` (HTTP/2) or raw HTTP/1.1 — time from request send to first response bytes |
 | **Transfer** | Time from first byte to last byte of response body |
 
+The TLS socket is kept open and reused for the HTTP request. ALPN negotiation during TLS determines whether HTTP/2 (`h2` library) or HTTP/1.1 (raw socket) is used. This ensures TTFB measures only application-level latency, not a redundant second TCP+TLS handshake.
+
 Each sample creates a **fresh connection** (no keepalive/reuse) to ensure independent measurements.
+
+> **Note on DNS caching:** On macOS, the system DNS cache (`mDNSResponder`) may cache DNS responses, making DNS timing for samples 2+ artificially fast. Use `--dns-server 8.8.8.8` to bypass the OS cache for more accurate per-sample DNS measurements.
 
 ### PoP Detection
 
@@ -175,20 +195,21 @@ Each CDN provider uses a different method to identify the serving edge location:
 | **Fastly** | `X-Served-By` header, trailing IATA code (e.g., `cache-dfw18681-DFW`) | Confirmed |
 | **Akamai** | `X-Cache` header with debug Pragma headers | Unknown (best effort) |
 | **Azure CDN** | `x-msedge-ref` header is opaque; uses IP geolocation | Inferred |
-| **Google** | Reverse DNS of resolved IP (e.g., `dfw25s42-in-f4.1e100.net`) | Best effort |
+| **Google** | Reverse DNS of resolved IP (e.g., `dfw25s42-in-f4.1e100.net` → `DFW`) | Inferred |
+| **Custom** (`--url`) | No provider-specific detection | Unknown |
 
 ### Network Path Tracing
 
 Traces the route to each CDN's resolved IP address:
 
-1. **Primary**: `icmplib.traceroute()` — pure Python, cross-platform
+1. **Primary**: `icmplib.traceroute()` — pure Python, cross-platform, individual per-probe RTTs
 2. **Fallback**: System `/usr/sbin/traceroute -n` if ICMP permissions fail
 
 For each hop IP, two concurrent DNS lookups are performed:
 - **ASN info**: Team Cymru DNS (`<reversed-ip>.origin.asn.cymru.com` TXT record)
 - **Reverse DNS**: PTR record lookup for hostname
 
-Results are cached per-IP to avoid duplicate lookups when multiple providers share intermediate hops.
+Results are cached per-IP to avoid duplicate lookups when multiple providers share intermediate hops. The cache is cleared at the start of each `trace_all()` call to prevent unbounded growth.
 
 ### Concurrency Model
 
@@ -205,24 +226,25 @@ cdnperf/
 ├── cdnperf/
 │   ├── __init__.py         # Package version
 │   ├── __main__.py         # python -m cdnperf entry point
-│   ├── cli.py              # Click CLI, async orchestration
-│   ├── config.py           # Constants, color thresholds
+│   ├── cli.py              # Click CLI, async orchestration, repeat/watch mode
+│   ├── config.py           # Constants, color thresholds, phase definitions
 │   ├── models.py           # Dataclasses (TimingBreakdown, HopInfo, NetworkPath, etc.)
-│   ├── engine.py           # Core async measurement (DNS/TCP/TLS/TTFB per-phase)
+│   ├── engine.py           # Core async measurement (DNS/TCP/TLS/TTFB/Transfer via h2 or h1)
 │   ├── trace.py            # Traceroute + Team Cymru ASN lookup + reverse DNS
 │   ├── stats.py            # Statistical aggregation (min/avg/median/p95/stdev/jitter)
 │   ├── location.py         # User IP geolocation via free APIs
 │   ├── display.py          # Rich terminal output (tables, progress bars, path diagrams)
-│   ├── export.py           # JSON/CSV export
+│   ├── export.py           # JSON/CSV export (with timestamp and transfer stats)
 │   ├── providers/
-│   │   ├── __init__.py     # Provider registry
-│   │   ├── base.py         # Abstract CDNProvider base class
+│   │   ├── __init__.py     # Provider registry + generic provider factory
+│   │   ├── base.py         # Abstract CDNProvider base class (with optional IP-based PoP detection)
+│   │   ├── generic.py      # Generic provider for custom --url endpoints
 │   │   ├── cloudflare.py
 │   │   ├── cloudfront.py
 │   │   ├── fastly.py
 │   │   ├── akamai.py
 │   │   ├── azure.py
-│   │   └── google.py
+│   │   └── google.py       # Includes rDNS-based PoP detection
 │   └── data/
 │       └── iata_codes.json # 319 IATA codes with city/country/coordinates
 ```
@@ -231,7 +253,8 @@ cdnperf/
 
 | Package | Purpose |
 |---|---|
-| [httpx](https://www.python-httpx.org/) (with HTTP/2) | Async HTTP client for TTFB/Transfer measurement |
+| [httpx](https://www.python-httpx.org/) (with HTTP/2) | Async HTTP client for PoP detection requests |
+| [h2](https://python-hyper.org/projects/h2/) | HTTP/2 protocol implementation for sending requests on existing TLS sockets |
 | [dnspython](https://www.dnspython.org/) | Async DNS resolution, PTR lookups, Team Cymru ASN queries |
 | [rich](https://rich.readthedocs.io/) | Terminal tables, progress bars, live display, color coding |
 | [click](https://click.palletsprojects.com/) | CLI argument parsing |
@@ -244,7 +267,8 @@ cdnperf is designed to degrade gracefully:
 - **Timeouts**: Excluded from stats; provider marked "unreachable" if all samples fail
 - **DNS failures**: Remaining phases skipped for that sample
 - **Rate limiting (429)**: Backs off once (2s), then marks as rate-limited
-- **TLS issues**: Falls back to combined TCP+TLS timing
+- **TLS issues**: Falls back to combined TCP+TLS timing on a new connection
+- **HTTP/2 stream reset**: Raises an error for the sample, other samples continue
 - **Traceroute permissions**: Tries `icmplib` first, falls back to system `traceroute`
 - **ASN lookup failures**: Hop shown without ASN info
 - **Proxy detection**: Warns if `HTTP_PROXY`/`HTTPS_PROXY` env vars are set

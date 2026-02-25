@@ -20,7 +20,7 @@ def compute_stats(values: Sequence[float]) -> LatencyStats:
     median = _percentile(sorted_vals, 50)
     p95 = _percentile(sorted_vals, 95)
 
-    variance = sum((v - avg) ** 2 for v in sorted_vals) / n if n > 1 else 0.0
+    variance = sum((v - avg) ** 2 for v in sorted_vals) / (n - 1) if n > 1 else 0.0
     stdev = math.sqrt(variance)
 
     jitter = _compute_jitter(values)
@@ -68,6 +68,7 @@ def aggregate_provider_stats(result: ProviderResult) -> None:
         "tcp": [s.timing.tcp_ms for s in samples],
         "tls": [s.timing.tls_ms for s in samples],
         "ttfb": [s.timing.ttfb_ms for s in samples],
+        "transfer": [s.timing.transfer_ms for s in samples],
         "total": [s.timing.total_ms for s in samples],
     }
 

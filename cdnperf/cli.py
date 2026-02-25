@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import os
 import sys
+import time as _time
 
 import click
 
@@ -32,6 +34,9 @@ from cdnperf.models import FullResult, MeasurementConfig
 @click.option("-v", "--verbose", is_flag=True, help="Show per-sample details")
 @click.option("--no-geo", is_flag=True, help="Skip geolocation lookup")
 @click.option("--compare", is_flag=True, help="Show only summary comparison table")
+@click.option("--url", default=None, help="Custom probe URL (creates a generic provider)")
+@click.option("--repeat", default=1, help="Number of measurement rounds", show_default=True)
+@click.option("--interval", default=60, help="Seconds between rounds (used with --repeat)", show_default=True)
 @click.version_option(version=__version__)
 def main(
     providers: str,
@@ -52,11 +57,14 @@ def main(
     verbose: bool,
     no_geo: bool,
     compare: bool,
+    url: str | None,
+    repeat: int,
+    interval: int,
 ) -> None:
     """cdnperf — CDN PoP Latency Measurement Tool.
 
     Measures latency to CDN Points of Presence with per-phase timing
-    breakdown (DNS, TCP, TLS, TTFB) and network path tracing with ASN info.
+    breakdown (DNS, TCP, TLS, TTFB, Transfer) and network path tracing with ASN info.
     """
     # Check for proxy warnings
     if not quiet and not json_output and not csv_output:
@@ -87,24 +95,36 @@ def main(
     )
 
     try:
-        result = asyncio.run(_run(config))
+        for round_num in range(1, repeat + 1):
+            if repeat > 1 and not quiet and not json_output and not csv_output:
+                from cdnperf.display import console
+                if round_num > 1:
+                    console.print()
+                console.print(f"[bold]━━━ Round {round_num}/{repeat} ━━━[/bold]")
+
+            result = asyncio.run(_run(config, custom_url=url))
+            _handle_output(result, config)
+
+            # Sleep between rounds (not after the last one)
+            if round_num < repeat:
+                if not quiet and not json_output and not csv_output:
+                    from cdnperf.display import console
+                    console.print(f"\n[dim]Next round in {interval}s...[/dim]")
+                _time.sleep(interval)
+
     except KeyboardInterrupt:
         if not quiet and not json_output and not csv_output:
             from cdnperf.display import console
             console.print("\n[yellow]Interrupted.[/yellow]")
         sys.exit(130)
 
-    # Output
-    _handle_output(result, config)
 
-
-async def _run(config: MeasurementConfig) -> FullResult:
+async def _run(config: MeasurementConfig, custom_url: str | None = None) -> FullResult:
     """Main async orchestration."""
     from cdnperf.display import ProgressTracker, console, render_warning
-    from cdnperf.engine import measure_all
+    from cdnperf.engine import measure_all, measure_provider
     from cdnperf.location import get_geolocation
-    from cdnperf.providers import get_provider_map, list_providers
-    from cdnperf.stats import aggregate_provider_stats
+    from cdnperf.providers import create_generic_provider, get_provider_map, list_providers
     from cdnperf.trace import trace_all
 
     # Validate providers
@@ -125,9 +145,13 @@ async def _run(config: MeasurementConfig) -> FullResult:
         geo_task = asyncio.create_task(get_geolocation())
 
     # Set up progress tracking (only track actual samples, not warmup)
+    all_slugs = list(slugs)
+    if custom_url:
+        all_slugs.append("custom")
+
     progress = None
     if not config.quiet and not config.json_output and not config.csv_output:
-        progress = ProgressTracker(slugs, config.samples)
+        progress = ProgressTracker(all_slugs, config.samples)
 
     # Progress callback
     def on_progress(provider_slug: str, sample_index: int, total: int, sample_result):
@@ -148,18 +172,21 @@ async def _run(config: MeasurementConfig) -> FullResult:
 
     # Run measurements
     if progress:
-        console.print(f"[bold]Measuring {len(slugs)} CDN providers, {config.samples} samples each...[/bold]\n")
+        provider_count = len(all_slugs)
+        console.print(f"[bold]Measuring {provider_count} CDN provider{'s' if provider_count != 1 else ''}, {config.samples} samples each...[/bold]\n")
         progress.start()
 
     try:
         provider_results = await measure_all(config, progress_callback=on_progress)
+
+        # Measure custom URL if provided
+        if custom_url:
+            generic = create_generic_provider(custom_url)
+            custom_result = await measure_provider(generic, config, progress_callback=on_progress)
+            provider_results.append(custom_result)
     finally:
         if progress:
             progress.finish()
-
-    # Compute statistics
-    for pr in provider_results:
-        aggregate_provider_stats(pr)
 
     # Traceroute (concurrent for all providers)
     if config.trace_enabled:
@@ -189,6 +216,7 @@ async def _run(config: MeasurementConfig) -> FullResult:
         geo=geo,
         providers=provider_results,
         config=config,
+        timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
     )
 
 

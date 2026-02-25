@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -69,17 +70,10 @@ class HopInfo:
     def is_private(self) -> bool:
         if not self.ip:
             return False
-        parts = self.ip.split(".")
-        if len(parts) != 4:
+        try:
+            return ipaddress.ip_address(self.ip).is_private
+        except ValueError:
             return False
-        first, second = int(parts[0]), int(parts[1])
-        if first == 10:
-            return True
-        if first == 172 and 16 <= second <= 31:
-            return True
-        if first == 192 and second == 168:
-            return True
-        return False
 
     @property
     def is_timeout(self) -> bool:
@@ -187,3 +181,4 @@ class FullResult:
     geo: Optional[GeoLocation] = None
     providers: list[ProviderResult] = field(default_factory=list)
     config: Optional[MeasurementConfig] = None
+    timestamp: Optional[str] = None

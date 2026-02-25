@@ -47,3 +47,14 @@ def get_provider(slug: str) -> CDNProvider:
 def list_providers() -> list[str]:
     """Return sorted list of available provider slugs."""
     return sorted(get_provider_map())
+
+
+def create_generic_provider(url: str) -> CDNProvider:
+    """Create a :class:`GenericProvider` for a custom probe URL.
+
+    This is not registered in the static provider map — it is created
+    dynamically when the user passes ``--url``.
+    """
+    from cdnperf.providers.generic import GenericProvider
+
+    return GenericProvider(url)

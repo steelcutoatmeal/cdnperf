@@ -11,6 +11,7 @@ PHASE_THRESHOLDS = {
     "tcp": {"fast": 10.0, "medium": 30.0},
     "tls": {"fast": 20.0, "medium": 50.0},
     "ttfb": {"fast": 30.0, "medium": 80.0},
+    "transfer": {"fast": 10.0, "medium": 50.0},
     "total": {"fast": 50.0, "medium": 150.0},
 }
 
@@ -33,6 +34,7 @@ CYMRU_PEER_ZONE = "peer.asn.cymru.com"
 GEO_APIS = [
     "https://ipinfo.io/json",
     "https://ipapi.co/json/",
+    # ip-api.com free tier only supports HTTP; this is the last fallback
     "http://ip-api.com/json/?fields=status,message,query,city,regionName,country,lat,lon,isp,org,as",
 ]
 
@@ -40,7 +42,7 @@ GEO_APIS = [
 USER_AGENT = "cdnperf/0.1.0"
 
 # Phase display names
-PHASE_NAMES = ["dns", "tcp", "tls", "ttfb", "total"]
+PHASE_NAMES = ["dns", "tcp", "tls", "ttfb", "transfer", "total"]
 PHASE_LABELS = {
     "dns": "DNS",
     "tcp": "TCP",

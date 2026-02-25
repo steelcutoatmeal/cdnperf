@@ -44,3 +44,11 @@ class CDNProvider(abc.ABC):
     def extract_metadata(self, response: httpx.Response) -> dict[str, str]:
         """Extract additional metadata from the response (cache status, etc.)."""
         return {}
+
+    async def detect_pop_by_ip(self, ip: str) -> Optional[PoPIdentity]:
+        """Attempt to detect the PoP via the resolved IP (e.g. rDNS).
+
+        Subclasses may override this for IP-based PoP detection.
+        Returns ``None`` if no detection is possible.
+        """
+        return None

@@ -24,6 +24,7 @@ def export_csv(result: FullResult) -> str:
 
     # Header
     writer.writerow([
+        "timestamp",
         "provider",
         "pop_code",
         "pop_city",
@@ -58,6 +59,12 @@ def export_csv(result: FullResult) -> str:
         "ttfb_p95",
         "ttfb_max",
         "ttfb_jitter",
+        "transfer_min",
+        "transfer_avg",
+        "transfer_median",
+        "transfer_p95",
+        "transfer_max",
+        "transfer_jitter",
         "total_min",
         "total_avg",
         "total_median",
@@ -71,6 +78,7 @@ def export_csv(result: FullResult) -> str:
 
     for pr in result.providers:
         row = [
+            result.timestamp or "",
             pr.provider_name,
             pr.pop.code or "",
             pr.pop.city or "",
@@ -83,7 +91,7 @@ def export_csv(result: FullResult) -> str:
             len(pr.samples),
         ]
 
-        for phase in ["dns", "tcp", "tls", "ttfb", "total"]:
+        for phase in ["dns", "tcp", "tls", "ttfb", "transfer", "total"]:
             stats = pr.phase_stats.get(phase)
             if stats:
                 row.extend([
@@ -116,6 +124,9 @@ def write_to_file(content: str, filepath: str) -> None:
 def _build_export_dict(result: FullResult) -> dict:
     """Build a serializable dictionary from FullResult."""
     data: dict = {}
+
+    if result.timestamp:
+        data["timestamp"] = result.timestamp
 
     if result.geo:
         data["user"] = {

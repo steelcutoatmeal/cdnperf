@@ -203,7 +203,7 @@ def _build_phase_table(result: ProviderResult) -> Table:
         label = PHASE_LABELS.get(phase, phase.upper())
 
         # Add a visual separator before Total
-        end_section = phase == "ttfb"
+        end_section = phase == "transfer"
         table.add_row(
             label,
             _fmt_ms(stats.min, phase),
