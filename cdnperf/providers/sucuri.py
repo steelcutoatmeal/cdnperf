@@ -26,7 +26,7 @@ class SucuriProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://sucuri.net/"
+        return "https://sucuri.net/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         sucuri_id = response.headers.get("x-sucuri-id", "")

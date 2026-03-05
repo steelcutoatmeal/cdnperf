@@ -26,7 +26,7 @@ class CDNetworksProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.cdnetworks.com/"
+        return "https://www.cdnetworks.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         via = response.headers.get("via", "")

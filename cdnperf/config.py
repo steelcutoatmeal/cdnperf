@@ -39,7 +39,9 @@ GEO_APIS = [
 ]
 
 # User agent for HTTP requests
-USER_AGENT = "cdnperf/0.1.0"
+from cdnperf import __version__ as _version
+
+USER_AGENT = f"cdnperf/{_version}"
 
 # Phase display names
 PHASE_NAMES = ["dns", "tcp", "tls", "ttfb", "transfer", "total"]

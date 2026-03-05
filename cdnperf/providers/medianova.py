@@ -28,7 +28,7 @@ class MedianovaProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.medianova.com/"
+        return "https://www.medianova.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         x_cdn = response.headers.get("x-cdn", "")

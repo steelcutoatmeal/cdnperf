@@ -30,7 +30,7 @@ class FastlyProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.fastly.com/"
+        return "https://www.fastly.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         raw = response.headers.get("x-served-by", "")

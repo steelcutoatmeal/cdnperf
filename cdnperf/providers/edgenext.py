@@ -26,7 +26,7 @@ class EdgeNextProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.edgenext.com/"
+        return "https://www.edgenext.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         via = response.headers.get("via", "")

@@ -30,7 +30,7 @@ class BunnyProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://bunny.net/"
+        return "https://bunny.net/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         # Bunny.net may expose PoP info in cdn-requestid or similar headers

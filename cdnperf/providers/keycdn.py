@@ -28,7 +28,7 @@ class KeyCDNProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.keycdn.com/"
+        return "https://www.keycdn.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         edge_loc = response.headers.get("x-edge-location", "")

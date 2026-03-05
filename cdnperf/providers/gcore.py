@@ -28,7 +28,7 @@ class GcoreProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://gcore.com/"
+        return "https://gcore.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         # Gcore may expose PoP info in x-id or similar headers

@@ -26,14 +26,23 @@ class BelugaCDNProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.belugacdn.com/"
+        return "https://www.belugacdn.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
+        node = response.headers.get("x-beluga-node", "")
+        if node:
+            return PoPIdentity(
+                confidence="inferred",
+                raw_header=node,
+            )
         return PoPIdentity(confidence="unknown")
 
     def extract_metadata(self, response: httpx.Response) -> dict[str, str]:
         metadata: dict[str, str] = {}
-        for header in ("server", "x-cache", "x-cdn", "via"):
+        for header in (
+            "server", "x-beluga-cache-status", "x-beluga-node",
+            "x-beluga-response-time", "x-cache", "via",
+        ):
             value = response.headers.get(header)
             if value:
                 metadata[header] = value

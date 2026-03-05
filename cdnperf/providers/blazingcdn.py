@@ -25,7 +25,7 @@ class BlazingCDNProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://blazingcdn.com/"
+        return "https://blazingcdn.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         return PoPIdentity(confidence="unknown")

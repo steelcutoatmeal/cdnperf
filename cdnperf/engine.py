@@ -397,13 +397,17 @@ async def _measure_http_h1(
 
     # Read until we get the full header block (\r\n\r\n)
     header_buf = b""
+    t_first_byte: float | None = None
     while b"\r\n\r\n" not in header_buf:
         chunk = await asyncio.wait_for(reader.read(4096), timeout=timeout)
         if not chunk:
             break
+        if t_first_byte is None:
+            t_first_byte = time.perf_counter()
         header_buf += chunk
 
-    t_first_byte = time.perf_counter()
+    if t_first_byte is None:
+        t_first_byte = time.perf_counter()
     ttfb_ms = (t_first_byte - t_send) * 1000.0
 
     # Split header from any body data received so far
@@ -690,9 +694,23 @@ async def _run_single_sample(
             status_code = http_result.status_code
             http_version = http_result.http_version
 
+            # Warn on redirects — timing reflects the redirect response,
+            # not the final destination.  Probe URLs should avoid redirects.
+            if status_code and 300 <= status_code < 400:
+                location = (
+                    http_result.headers.get("location")
+                    or http_result.headers.get("Location")
+                    or "unknown"
+                )
+                logger.warning(
+                    "%s probe URL returned %d redirect to %s — "
+                    "timing may not reflect actual CDN edge latency",
+                    provider.slug, status_code, location,
+                )
+
             # Extract cache status from common CDN headers.
             for hdr in ("x-cache", "cf-cache-status", "x-cache-status", "x-cdn-cache"):
-                val = http_result.headers.get(hdr) or http_result.headers.get(hdr.lower())
+                val = http_result.headers.get(hdr)
                 if val:
                     cache_status = val
                     break
@@ -706,7 +724,7 @@ async def _run_single_sample(
 
     finally:
         # Always close the socket when we're done
-        _safe_close_writer(active_writer)
+        await _async_close_writer(active_writer)
 
     return SampleResult(
         sample_index=sample_index,
@@ -720,12 +738,29 @@ async def _run_single_sample(
     )
 
 
-def _safe_close_writer(writer: asyncio.StreamWriter | None) -> None:
-    """Close a stream writer without raising on already-closed transports."""
+async def _async_close_writer(writer: asyncio.StreamWriter | None) -> None:
+    """Close a stream writer and await full shutdown."""
     if writer is None:
         return
     try:
         writer.close()
+        await writer.wait_closed()
+    except Exception:
+        pass
+
+
+def _safe_close_writer(writer: asyncio.StreamWriter | None) -> None:
+    """Close a stream writer, scheduling async cleanup if possible."""
+    if writer is None:
+        return
+    try:
+        writer.close()
+        # Schedule wait_closed() if an event loop is running.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(writer.wait_closed())
+        except RuntimeError:
+            pass
     except Exception:
         pass
 
@@ -872,6 +907,7 @@ async def _detect_pop_and_metadata(
         async with httpx.AsyncClient(
             transport=transport,
             timeout=httpx.Timeout(config.timeout),
+            follow_redirects=True,
         ) as client:
             response = await client.get(url, headers=headers)
     else:
@@ -879,6 +915,7 @@ async def _detect_pop_and_metadata(
             http2=True,
             verify=True,
             timeout=httpx.Timeout(config.timeout),
+            follow_redirects=True,
         ) as client:
             response = await client.get(url, headers=headers)
 

@@ -28,7 +28,7 @@ class CacheFlyProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.cachefly.com/"
+        return "https://www.cachefly.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         # CacheFly may embed PoP info in server or x-served-by headers

@@ -27,7 +27,7 @@ class CDN77Provider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.cdn77.com/"
+        return "https://www.cdn77.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         # CDN77 uses x-77-pop or embeds PoP info in x-cache

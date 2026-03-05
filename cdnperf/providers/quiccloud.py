@@ -27,7 +27,7 @@ class QuicCloudProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.quic.cloud/"
+        return "https://www.quic.cloud/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         qc_pop = response.headers.get("x-qc-pop", "")

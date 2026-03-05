@@ -26,7 +26,7 @@ class ImpervaProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.imperva.com/"
+        return "https://www.imperva.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         x_iinfo = response.headers.get("x-iinfo", "")

@@ -30,7 +30,7 @@ class AkamaiProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.akamai.com/"
+        return "https://www.akamai.com/favicon.ico"
 
     @property
     def extra_headers(self) -> dict[str, str]:
@@ -45,25 +45,37 @@ class AkamaiProvider(CDNProvider):
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         x_cache = response.headers.get("x-cache", "")
         if x_cache:
-            # Akamai edge hostnames sometimes embed a short PoP code,
-            # e.g. "TCP_HIT from a]23.45.67.89 (AkamaiGHost/...)".
-            # Try to extract a 3-letter IATA-style code from the
-            # hostname portion.  This is best-effort at best.
-            match = re.search(r"\b([a-z]{3})\d*\.\w+\.akamaiedge\.net\b", x_cache, re.IGNORECASE)
+            # Akamai x-cache may contain edge hostname like
+            # "TCP_HIT from a23-45-67-89.deploy.akamaitechnologies.com"
+            match = re.search(
+                r"\b([a-z]{3})\d*\.\w+\.akamaitechnologies\.com\b",
+                x_cache, re.IGNORECASE,
+            )
+            if not match:
+                match = re.search(
+                    r"\b([a-z]{3})\d*\.\w+\.akamaiedge\.net\b",
+                    x_cache, re.IGNORECASE,
+                )
             if match:
                 return PoPIdentity(
                     code=match.group(1).upper(),
-                    confidence="unknown",
+                    confidence="best_effort",
                     raw_header=x_cache,
                 )
 
-        # Fallback: no PoP code extracted.  Callers can still use the
-        # resolved edge IP for geolocation-based inference.
+        # server-timing may contain "cdn-cache; desc=HIT, edge; dur=10"
+        server_timing = response.headers.get("server-timing", "")
+        if server_timing and "cdn-cache" in server_timing:
+            return PoPIdentity(
+                confidence="best_effort",
+                raw_header=server_timing,
+            )
+
         return PoPIdentity(confidence="unknown", raw_header=x_cache or None)
 
     def extract_metadata(self, response: httpx.Response) -> dict[str, str]:
         metadata: dict[str, str] = {}
-        for header in ("x-cache", "x-cache-key", "x-true-cache-key"):
+        for header in ("x-cache", "x-cache-key", "x-true-cache-key", "server-timing"):
             value = response.headers.get(header)
             if value:
                 metadata[header] = value

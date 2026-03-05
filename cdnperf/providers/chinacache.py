@@ -26,7 +26,7 @@ class ChinaCacheProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://en.chinacache.com/"
+        return "https://en.chinacache.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         powered_by = response.headers.get("x-powered-by", "")

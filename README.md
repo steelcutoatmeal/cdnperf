@@ -198,8 +198,9 @@ Each CDN provider uses a different method to identify the serving edge location:
 | **CloudFront** | `x-amz-cf-pop` response header (e.g., `DFW55-C1`) | Confirmed |
 | **Fastly** | `X-Served-By` header, trailing IATA code (e.g., `cache-dfw18681-DFW`) | Confirmed |
 | **CDN77** | `x-77-pop` response header | Confirmed |
-| **Akamai** | `X-Cache` header with debug Pragma headers | Unknown (best effort) |
-| **Azure CDN** | `x-msedge-ref` header is opaque; uses IP geolocation | Inferred |
+| **QUIC.cloud** | `x-qc-pop` response header | Confirmed |
+| **Akamai** | `X-Cache` edge hostname or `server-timing` header with debug Pragma headers | Best effort |
+| **Azure CDN** | `x-msedge-ref` header `Ref B:` field (e.g., `CO1EDGE2922` → `CO1`) | Inferred |
 | **Google** | Reverse DNS of resolved IP (e.g., `dfw25s42-in-f4.1e100.net` → `DFW`) | Inferred |
 | **Gcore** | `x-id` response header | Inferred |
 | **Imperva** | `x-iinfo` / `x-cdn` response headers | Inferred |
@@ -207,18 +208,28 @@ Each CDN provider uses a different method to identify the serving edge location:
 | **KeyCDN** | `x-edge-location` response header (e.g., `fran`, `lond`) | Inferred |
 | **Sucuri** | `x-sucuri-id` response header | Inferred |
 | **Bunny.net** | `cdn-requestid` header (e.g., `DE-FRA-...`) | Inferred |
-| **Alibaba Cloud** | `eagleid` / `via` response headers | Inferred |
-| **QUIC.cloud** | `x-qc-pop` response header | Confirmed |
+| **Alibaba Cloud** | `via` header with `ens-cache` node identifiers / `eagleid` header | Inferred |
 | **CDNetworks** | `via` response header | Inferred |
 | **Tencent Cloud** | `x-nws-log-uuid` / `x-cache-lookup` headers | Inferred |
-| **BytePlus** | `via` / `x-tt-trace-tag` headers | Inferred |
+| **BytePlus** | `x-tt-trace-tag` / `x-bdcdn-cache-status` headers | Inferred |
+| **Beluga CDN** | `x-beluga-node` response header | Inferred |
 | **ChinaCache** | `x-powered-by` header (ChinaCache identifier) | Inferred |
 | **Kingsoft Cloud** | `via` response header | Inferred |
 | **Medianova** | `x-cdn` response header | Inferred |
 | **EdgeNext** | `via` response header | Inferred |
 | **Blazing CDN** | No PoP-specific headers exposed | Unknown |
-| **Beluga CDN** | No PoP-specific headers exposed | Unknown |
 | **Custom** (`--url`) | No provider-specific detection | Unknown |
+
+### Probe URL Selection
+
+Each provider's probe URL is chosen to ensure the response actually traverses that CDN's edge network. Key considerations:
+
+- **Small responses**: Most providers use `/favicon.ico` (1–5 KB) to minimize transfer time variance
+- **Purpose-built endpoints**: Cloudflare uses `/cdn-cgi/trace` (diagnostic endpoint), Google uses `/generate_204` (zero-body response)
+- **CDN-verified**: Each URL has been verified to return headers from the target CDN. Some CDN vendor websites are fronted by *other* CDNs (e.g., `alibabacloud.com` is behind Akamai, `microsoft.com` is behind Fastly), so alternative domains that use the vendor's own CDN are used instead
+- **Redirect-free**: Probe URLs avoid 3xx redirects; the engine logs a warning if a redirect is detected since timing would reflect the redirect response, not actual CDN edge latency
+
+> **Note on BytePlus**: BytePlus uses Akamai as an edge layer in front of their own CDN infrastructure. Latency measurements include Akamai's edge, but BytePlus CDN-specific headers (`x-bdcdn-cache-status`, `server: TLB`) are present to confirm the BytePlus layer is active.
 
 ### Network Path Tracing
 

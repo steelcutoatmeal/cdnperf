@@ -27,7 +27,7 @@ class TencentProvider(CDNProvider):
 
     @property
     def probe_url(self) -> str:
-        return "https://www.tencentcloud.com/"
+        return "https://www.tencentcloud.com/favicon.ico"
 
     def detect_pop(self, response: httpx.Response) -> PoPIdentity:
         nws_uuid = response.headers.get("x-nws-log-uuid", "")
