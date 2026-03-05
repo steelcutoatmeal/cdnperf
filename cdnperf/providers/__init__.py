@@ -21,7 +21,6 @@ def _load_providers() -> dict[str, type[CDNProvider]]:
     from cdnperf.providers.cachefly import CacheFlyProvider
     from cdnperf.providers.cdn77 import CDN77Provider
     from cdnperf.providers.cdnetworks import CDNetworksProvider
-    from cdnperf.providers.chinacache import ChinaCacheProvider
     from cdnperf.providers.cloudflare import CloudflareProvider
     from cdnperf.providers.cloudfront import CloudFrontProvider
     from cdnperf.providers.edgenext import EdgeNextProvider
@@ -56,7 +55,6 @@ def _load_providers() -> dict[str, type[CDNProvider]]:
         "cdnetworks": CDNetworksProvider,
         "tencent": TencentProvider,
         "byteplus": BytePlusProvider,
-        "chinacache": ChinaCacheProvider,
         "kingsoft": KingsoftProvider,
         "medianova": MedianovaProvider,
         "edgenext": EdgeNextProvider,

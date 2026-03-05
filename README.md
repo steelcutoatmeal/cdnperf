@@ -9,7 +9,7 @@ A Python CLI tool that measures latency to CDN Points of Presence with granular 
 - **PoP detection** — Automatically identifies which CDN edge location you're routed to (e.g., DFW, DEN, LAX), including rDNS-based detection for Google
 - **Custom URL probing** — Measure any endpoint with `--url`, not just built-in CDN providers
 - **Repeat/watch mode** — Run measurements repeatedly with `--repeat` and `--interval` for monitoring
-- **24 CDN providers** — Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Google, Gcore, Imperva, CacheFly, KeyCDN, CDN77, Sucuri, Bunny.net, Alibaba Cloud, Blazing CDN, Beluga CDN, CDNetworks, Tencent Cloud, BytePlus, ChinaCache, Kingsoft Cloud, Medianova, EdgeNext, QUIC.cloud, plus any custom URL
+- **23 CDN providers** — Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Google, Gcore, Imperva, CacheFly, KeyCDN, CDN77, Sucuri, Bunny.net, Alibaba Cloud, Blazing CDN, Beluga CDN, CDNetworks, Tencent Cloud, BytePlus, Kingsoft Cloud, Medianova, EdgeNext, QUIC.cloud, plus any custom URL
 - **Statistical aggregation** — Min, avg, median, P95, max, stdev, jitter across samples (with Bessel's correction for sample variance)
 - **User geolocation** — Shows your IP, location, ISP, and distance to each detected PoP
 - **Multiple output formats** — Rich terminal tables, JSON (with timestamp), CSV (with timestamp and transfer stats)
@@ -28,7 +28,7 @@ pip install -e .
 ## Quick Start
 
 ```bash
-# Measure all 24 CDN providers (default: 5 samples each)
+# Measure all 23 CDN providers (default: 5 samples each)
 cdnperf
 
 # Single provider, 3 samples, verbose per-sample detail
@@ -73,7 +73,7 @@ Usage: cdnperf [OPTIONS]
 Options:
   -p, --providers TEXT   Comma-separated providers [default: all]
                          Available: akamai, alibaba, azure, belugacdn, blazingcdn,
-                         bunny, byteplus, cachefly, cdn77, cdnetworks, chinacache,
+                         bunny, byteplus, cachefly, cdn77, cdnetworks,
                          cloudflare, cloudfront, edgenext, fastly, gcore, google,
                          imperva, keycdn, kingsoft, medianova, quiccloud, sucuri,
                          tencent
@@ -213,7 +213,6 @@ Each CDN provider uses a different method to identify the serving edge location:
 | **Tencent Cloud** | `x-nws-log-uuid` / `x-cache-lookup` headers | Inferred |
 | **BytePlus** | `x-tt-trace-tag` / `x-bdcdn-cache-status` headers | Inferred |
 | **Beluga CDN** | `x-beluga-node` response header | Inferred |
-| **ChinaCache** | `x-powered-by` header (ChinaCache identifier) | Inferred |
 | **Kingsoft Cloud** | `via` response header | Inferred |
 | **Medianova** | `x-cdn` response header | Inferred |
 | **EdgeNext** | `via` response header | Inferred |
@@ -291,7 +290,6 @@ cdnperf/
 │   │   ├── cdnetworks.py
 │   │   ├── tencent.py
 │   │   ├── byteplus.py
-│   │   ├── chinacache.py
 │   │   ├── kingsoft.py
 │   │   ├── medianova.py
 │   │   ├── edgenext.py
