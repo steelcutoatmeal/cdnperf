@@ -213,10 +213,10 @@ Each CDN provider uses a different method to identify the serving edge location:
 | **Tencent Cloud** | `x-nws-log-uuid` / `x-cache-lookup` headers | Inferred |
 | **BytePlus** | `x-tt-trace-tag` / `x-bdcdn-cache-status` headers | Inferred |
 | **Beluga CDN** | `x-beluga-node` response header | Inferred |
-| **Kingsoft Cloud** | `via` response header | Inferred |
+| **Kingsoft Cloud** | `x-cache-status` header with `KS-CLOUD-*` node identity | Inferred |
 | **Medianova** | `x-cdn` response header | Inferred |
 | **EdgeNext** | `via` response header | Inferred |
-| **Blazing CDN** | No PoP-specific headers exposed | Unknown |
+| **Blazing CDN** | `x-cdn-host-id` response header | Inferred |
 | **Custom** (`--url`) | No provider-specific detection | Unknown |
 
 ### Probe URL Selection

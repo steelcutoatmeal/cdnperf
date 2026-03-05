@@ -697,11 +697,7 @@ async def _run_single_sample(
             # Warn on redirects — timing reflects the redirect response,
             # not the final destination.  Probe URLs should avoid redirects.
             if status_code and 300 <= status_code < 400:
-                location = (
-                    http_result.headers.get("location")
-                    or http_result.headers.get("Location")
-                    or "unknown"
-                )
+                location = http_result.headers.get("location") or "unknown"
                 logger.warning(
                     "%s probe URL returned %d redirect to %s — "
                     "timing may not reflect actual CDN edge latency",

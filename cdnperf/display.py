@@ -228,10 +228,8 @@ def _render_connection_info(result: ProviderResult) -> None:
     if result.http_version:
         info_parts.append(result.http_version)
     if result.extra_metadata:
-        skip = {"tls", "http"}
         for k, v in result.extra_metadata.items():
-            if k not in skip:
-                info_parts.append(f"{k}: {v}")
+            info_parts.append(f"{k}: {v}")
     if info_parts:
         console.print(f"  [dim]{' | '.join(info_parts)}[/dim]")
 
@@ -249,6 +247,7 @@ def _build_verbose_table(result: ProviderResult) -> Table:
     table.add_column("TCP", justify="right")
     table.add_column("TLS", justify="right")
     table.add_column("TTFB", justify="right")
+    table.add_column("Transfer", justify="right")
     table.add_column("Total", justify="right")
     table.add_column("Status", justify="right")
 
@@ -256,7 +255,7 @@ def _build_verbose_table(result: ProviderResult) -> Table:
         if s.error:
             table.add_row(
                 str(s.sample_index),
-                "\u2014", "\u2014", "\u2014", "\u2014", "\u2014",
+                "\u2014", "\u2014", "\u2014", "\u2014", "\u2014", "\u2014",
                 Text(s.error, style="red"),
             )
         else:
@@ -266,6 +265,7 @@ def _build_verbose_table(result: ProviderResult) -> Table:
                 _fmt_ms(s.timing.tcp_ms, "tcp"),
                 _fmt_ms(s.timing.tls_ms, "tls"),
                 _fmt_ms(s.timing.ttfb_ms, "ttfb"),
+                _fmt_ms(s.timing.transfer_ms, "transfer"),
                 _fmt_ms(s.timing.total_ms, "total"),
                 Text(str(s.status_code or "\u2014"), style="dim"),
             )
