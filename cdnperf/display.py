@@ -400,7 +400,7 @@ def render_comparison(results: list[ProviderResult]) -> None:
     table.add_column("Total", justify="right")
     table.add_column("Jitter", justify="right")
     table.add_column("Hops", justify="right")
-    table.add_column("", min_width=20)
+    table.add_column("Latency", min_width=20)
 
     max_total = max(
         (r.phase_stats.get("total", LatencyStats()).median for r in sorted_results),
