@@ -461,15 +461,25 @@ def render_comparison(results: list[ProviderResult]) -> None:
 # ── Full result rendering ─────────────────────────────────────────────
 
 
+def _render_provider_separator(name: str) -> None:
+    """Print a large ASCII banner to visually separate providers."""
+    width = max(len(name) + 8, 50)
+    bar = "═" * width
+    pad = (width - len(name) - 4) // 2
+    console.print()
+    console.print(f"[bold cyan]╔{bar}╗[/bold cyan]")
+    console.print(f"[bold cyan]║{' ' * pad}  {name}  {' ' * (width - pad - len(name) - 4)}║[/bold cyan]")
+    console.print(f"[bold cyan]╚{bar}╝[/bold cyan]")
+
+
 def render_full(result: FullResult, verbose: bool = False) -> None:
     """Render the complete measurement results."""
     if result.geo and not result.geo.error:
         render_geo(result.geo)
 
     for pr in result.providers:
-        console.print()
+        _render_provider_separator(pr.provider_name)
         if pr.error and not pr.is_reachable:
-            console.print(f"[bold]{pr.provider_name}[/bold]")
             console.print(f"  [red]{pr.error}[/red]")
             continue
 
