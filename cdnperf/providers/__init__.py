@@ -17,16 +17,24 @@ def _load_providers() -> dict[str, type[CDNProvider]]:
     from cdnperf.providers.belugacdn import BelugaCDNProvider
     from cdnperf.providers.blazingcdn import BlazingCDNProvider
     from cdnperf.providers.bunny import BunnyProvider
+    from cdnperf.providers.byteplus import BytePlusProvider
     from cdnperf.providers.cachefly import CacheFlyProvider
     from cdnperf.providers.cdn77 import CDN77Provider
+    from cdnperf.providers.cdnetworks import CDNetworksProvider
+    from cdnperf.providers.chinacache import ChinaCacheProvider
     from cdnperf.providers.cloudflare import CloudflareProvider
     from cdnperf.providers.cloudfront import CloudFrontProvider
+    from cdnperf.providers.edgenext import EdgeNextProvider
     from cdnperf.providers.fastly import FastlyProvider
     from cdnperf.providers.gcore import GcoreProvider
     from cdnperf.providers.google import GoogleProvider
     from cdnperf.providers.imperva import ImpervaProvider
     from cdnperf.providers.keycdn import KeyCDNProvider
+    from cdnperf.providers.kingsoft import KingsoftProvider
+    from cdnperf.providers.medianova import MedianovaProvider
+    from cdnperf.providers.quiccloud import QuicCloudProvider
     from cdnperf.providers.sucuri import SucuriProvider
+    from cdnperf.providers.tencent import TencentProvider
 
     return {
         "cloudflare": CloudflareProvider,
@@ -45,6 +53,14 @@ def _load_providers() -> dict[str, type[CDNProvider]]:
         "bunny": BunnyProvider,
         "alibaba": AlibabaProvider,
         "belugacdn": BelugaCDNProvider,
+        "cdnetworks": CDNetworksProvider,
+        "tencent": TencentProvider,
+        "byteplus": BytePlusProvider,
+        "chinacache": ChinaCacheProvider,
+        "kingsoft": KingsoftProvider,
+        "medianova": MedianovaProvider,
+        "edgenext": EdgeNextProvider,
+        "quiccloud": QuicCloudProvider,
     }
 
 
