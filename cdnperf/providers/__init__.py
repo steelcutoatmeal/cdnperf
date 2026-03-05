@@ -12,11 +12,21 @@ _PROVIDER_MAP: dict[str, type[CDNProvider]] | None = None
 
 def _load_providers() -> dict[str, type[CDNProvider]]:
     from cdnperf.providers.akamai import AkamaiProvider
+    from cdnperf.providers.alibaba import AlibabaProvider
     from cdnperf.providers.azure import AzureProvider
+    from cdnperf.providers.belugacdn import BelugaCDNProvider
+    from cdnperf.providers.blazingcdn import BlazingCDNProvider
+    from cdnperf.providers.bunny import BunnyProvider
+    from cdnperf.providers.cachefly import CacheFlyProvider
+    from cdnperf.providers.cdn77 import CDN77Provider
     from cdnperf.providers.cloudflare import CloudflareProvider
     from cdnperf.providers.cloudfront import CloudFrontProvider
     from cdnperf.providers.fastly import FastlyProvider
+    from cdnperf.providers.gcore import GcoreProvider
     from cdnperf.providers.google import GoogleProvider
+    from cdnperf.providers.imperva import ImpervaProvider
+    from cdnperf.providers.keycdn import KeyCDNProvider
+    from cdnperf.providers.sucuri import SucuriProvider
 
     return {
         "cloudflare": CloudflareProvider,
@@ -25,6 +35,16 @@ def _load_providers() -> dict[str, type[CDNProvider]]:
         "akamai": AkamaiProvider,
         "azure": AzureProvider,
         "google": GoogleProvider,
+        "blazingcdn": BlazingCDNProvider,
+        "gcore": GcoreProvider,
+        "imperva": ImpervaProvider,
+        "cachefly": CacheFlyProvider,
+        "keycdn": KeyCDNProvider,
+        "cdn77": CDN77Provider,
+        "sucuri": SucuriProvider,
+        "bunny": BunnyProvider,
+        "alibaba": AlibabaProvider,
+        "belugacdn": BelugaCDNProvider,
     }
 
 

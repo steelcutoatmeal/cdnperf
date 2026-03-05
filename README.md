@@ -9,7 +9,7 @@ A Python CLI tool that measures latency to CDN Points of Presence with granular 
 - **PoP detection** — Automatically identifies which CDN edge location you're routed to (e.g., DFW, DEN, LAX), including rDNS-based detection for Google
 - **Custom URL probing** — Measure any endpoint with `--url`, not just built-in CDN providers
 - **Repeat/watch mode** — Run measurements repeatedly with `--repeat` and `--interval` for monitoring
-- **7 CDN providers** — Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Google, plus any custom URL
+- **16 CDN providers** — Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Google, Gcore, Imperva, CacheFly, KeyCDN, CDN77, Sucuri, Bunny.net, Alibaba Cloud, Blazing CDN, Beluga CDN, plus any custom URL
 - **Statistical aggregation** — Min, avg, median, P95, max, stdev, jitter across samples (with Bessel's correction for sample variance)
 - **User geolocation** — Shows your IP, location, ISP, and distance to each detected PoP
 - **Multiple output formats** — Rich terminal tables, JSON (with timestamp), CSV (with timestamp and transfer stats)
@@ -28,7 +28,7 @@ pip install -e .
 ## Quick Start
 
 ```bash
-# Measure all 6 CDN providers (default: 5 samples each)
+# Measure all 16 CDN providers (default: 5 samples each)
 cdnperf
 
 # Single provider, 3 samples, verbose per-sample detail
@@ -72,7 +72,9 @@ Usage: cdnperf [OPTIONS]
 
 Options:
   -p, --providers TEXT   Comma-separated providers [default: all]
-                         Available: akamai, azure, cloudflare, cloudfront, fastly, google
+                         Available: akamai, alibaba, azure, belugacdn, blazingcdn,
+                         bunny, cachefly, cdn77, cloudflare, cloudfront, fastly,
+                         gcore, google, imperva, keycdn, sucuri
   -n, --samples INTEGER  Samples per provider [default: 5]
   -w, --warmup INTEGER   Warmup requests (discarded) [default: 1]
   --no-warmup            Disable warmup
@@ -193,9 +195,19 @@ Each CDN provider uses a different method to identify the serving edge location:
 | **Cloudflare** | `colo=XXX` in `/cdn-cgi/trace` response body | Confirmed |
 | **CloudFront** | `x-amz-cf-pop` response header (e.g., `DFW55-C1`) | Confirmed |
 | **Fastly** | `X-Served-By` header, trailing IATA code (e.g., `cache-dfw18681-DFW`) | Confirmed |
+| **CDN77** | `x-77-pop` response header | Confirmed |
 | **Akamai** | `X-Cache` header with debug Pragma headers | Unknown (best effort) |
 | **Azure CDN** | `x-msedge-ref` header is opaque; uses IP geolocation | Inferred |
 | **Google** | Reverse DNS of resolved IP (e.g., `dfw25s42-in-f4.1e100.net` → `DFW`) | Inferred |
+| **Gcore** | `x-id` response header | Inferred |
+| **Imperva** | `x-iinfo` / `x-cdn` response headers | Inferred |
+| **CacheFly** | `x-served-by` response header | Inferred |
+| **KeyCDN** | `x-edge-location` response header (e.g., `fran`, `lond`) | Inferred |
+| **Sucuri** | `x-sucuri-id` response header | Inferred |
+| **Bunny.net** | `cdn-requestid` header (e.g., `DE-FRA-...`) | Inferred |
+| **Alibaba Cloud** | `eagleid` / `via` response headers | Inferred |
+| **Blazing CDN** | No PoP-specific headers exposed | Unknown |
+| **Beluga CDN** | No PoP-specific headers exposed | Unknown |
 | **Custom** (`--url`) | No provider-specific detection | Unknown |
 
 ### Network Path Tracing
@@ -244,7 +256,17 @@ cdnperf/
 │   │   ├── fastly.py
 │   │   ├── akamai.py
 │   │   ├── azure.py
-│   │   └── google.py       # Includes rDNS-based PoP detection
+│   │   ├── google.py       # Includes rDNS-based PoP detection
+│   │   ├── gcore.py
+│   │   ├── imperva.py
+│   │   ├── cachefly.py
+│   │   ├── keycdn.py
+│   │   ├── cdn77.py
+│   │   ├── sucuri.py
+│   │   ├── bunny.py
+│   │   ├── alibaba.py
+│   │   ├── blazingcdn.py
+│   │   └── belugacdn.py
 │   └── data/
 │       └── iata_codes.json # 319 IATA codes with city/country/coordinates
 ```
