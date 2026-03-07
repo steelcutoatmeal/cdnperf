@@ -1,4 +1,4 @@
-# cdnperf
+# cdnprobe
 
 A Python CLI tool that measures latency to CDN Points of Presence with granular per-phase timing breakdown (DNS, TCP, TLS, TTFB, Transfer) and traces the network path to each CDN showing every hop with ASN information.
 
@@ -19,7 +19,7 @@ A Python CLI tool that measures latency to CDN Points of Presence with granular 
 ## Installation
 
 ```bash
-cd cdnperf
+cd cdnprobe
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -29,46 +29,46 @@ pip install -e .
 
 ```bash
 # Measure all 23 CDN providers (default: 5 samples each)
-cdnperf
+cdnprobe
 
 # Single provider, 3 samples, verbose per-sample detail
-cdnperf -p cloudflare -n 3 -v
+cdnprobe -p cloudflare -n 3 -v
 
 # Multiple providers, comparison table only
-cdnperf -p cloudflare,cloudfront,google --compare
+cdnprobe -p cloudflare,cloudfront,google --compare
 
 # Measure a custom URL
-cdnperf --url https://example.com -n 3
+cdnprobe --url https://example.com -n 3
 
 # Repeat measurements every 30 seconds, 5 rounds
-cdnperf -p cloudflare --repeat 5 --interval 30
+cdnprobe -p cloudflare --repeat 5 --interval 30
 
 # Skip traceroute for faster results
-cdnperf --no-trace
+cdnprobe --no-trace
 
 # Export to JSON (includes timestamp)
-cdnperf --json -o results.json
+cdnprobe --json -o results.json
 
 # Export to CSV (includes timestamp and transfer stats)
-cdnperf --csv -o results.csv
+cdnprobe --csv -o results.csv
 
 # Use a custom DNS server (bypasses OS DNS cache)
-cdnperf --dns-server 8.8.8.8
+cdnprobe --dns-server 8.8.8.8
 
 # Quiet mode (no progress bar)
-cdnperf -q
+cdnprobe -q
 ```
 
 You can also run it as a module:
 
 ```bash
-python -m cdnperf -p cloudflare -n 3
+python -m cdnprobe -p cloudflare -n 3
 ```
 
 ## CLI Options
 
 ```
-Usage: cdnperf [OPTIONS]
+Usage: cdnprobe [OPTIONS]
 
 Options:
   -p, --providers TEXT   Comma-separated providers [default: all]
@@ -253,11 +253,11 @@ Results are cached per-IP to avoid duplicate lookups when multiple providers sha
 ## Project Structure
 
 ```
-cdnperf/
+cdnprobe/
 ├── pyproject.toml          # Package config and dependencies
-├── cdnperf/
+├── cdnprobe/
 │   ├── __init__.py         # Package version
-│   ├── __main__.py         # python -m cdnperf entry point
+│   ├── __main__.py         # python -m cdnprobe entry point
 │   ├── cli.py              # Click CLI, async orchestration, repeat/watch mode
 │   ├── config.py           # Constants, color thresholds, phase definitions
 │   ├── models.py           # Dataclasses (TimingBreakdown, HopInfo, NetworkPath, etc.)
@@ -311,7 +311,7 @@ cdnperf/
 
 ## Error Handling
 
-cdnperf is designed to degrade gracefully:
+cdnprobe is designed to degrade gracefully:
 
 - **Timeouts**: Excluded from stats; provider marked "unreachable" if all samples fail
 - **DNS failures**: Remaining phases skipped for that sample

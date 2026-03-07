@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cdnperf"
+name = "cdnprobe"
 version = "0.1.0"
 description = "CDN PoP latency measurement tool with per-phase timing and network path tracing"
 requires-python = ">=3.10"
@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [project.scripts]
-cdnperf = "cdnperf.cli:main"
+cdnprobe = "cdnprobe.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["cdnperf*"]
+include = ["cdnprobe*"]
 
 [tool.setuptools.package-data]
-cdnperf = ["data/*.json"]
+cdnprobe = ["data/*.json"]
